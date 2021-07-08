@@ -25,4 +25,4 @@ Predict departure delay/no delay, where a delay is defined as 15-minute delay (o
 3. [Reference Notebook 1](https://github.com/MScatolin/W261-SP19-Team13-FinalProject/blob/master/Team13_FinalProject.ipynb)
 4. [Reference Notebook 2](https://github.com/RLashofRegas/mids-w261-final/tree/main/notebooks)
 5. [Understanding Reporting for Causes of Delay & Cancellations](https://www.bts.gov/topics/airlines-and-airports/understanding-reporting-causes-flight-delays-and-cancellations) 
-6. [Airline Data Table Column Schema](https://www.transtats.bts.gov/Fields.asp?gnoyr_VQ=FGJ)
+6. [Airline Data Table Column Schema Explanation](https://www.transtats.bts.gov/Fields.asp?gnoyr_VQ=FGJ) and [Glossary](https://www.transtats.bts.gov/Glossary.asp?index=C)
