@@ -22,4 +22,5 @@ Predict departure delay/no delay, where a delay is defined as 15-minute delay (o
 ## Links and Resources
 1. [Project Description](https://docs.google.com/document/d/1dIh9RDSp8TLZ1JPbuJqZn1PKIMVGv-1PeOMjSYuf7XM/edit)
 2. [Official Project Repository](https://github.com/UCB-w261/main/tree/main/Assignments/FinalProject)
-
+3. [Reference Notebook 1](https://github.com/MScatolin/W261-SP19-Team13-FinalProject/blob/master/Team13_FinalProject.ipynb)
+4. [Reference Notebook 2](https://github.com/RLashofRegas/mids-w261-final/tree/main/notebooks)
