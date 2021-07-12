@@ -458,17 +458,11 @@ wikiRDD.take(10)
 # COMMAND ----------
 
 # MAGIC %md ### Q5 Student Answers:
-# MAGIC > __a)__ Type your answer here! 
+# MAGIC > __a)__ The raw data seems to be in String format. If we look at the `testRDD` or the `wikiRDD`, the first value represents the source node ID. The second part represents a dictionary of neighbor nodes along with their edge weights. For example, we can have an entry like `node1: {node2: w12, node3: w13 }`. This implies that node 1 is connected to node 2 with edge weight w12, and node 1 is connected to node 3 with edge weight w13.  
 # MAGIC 
-# MAGIC String format. The first value represents the source node. The second part represents the neighbor node that the source node is connected to and the weight of the edge. 
+# MAGIC > __b)__ We observe that the wikiRDD has 5781290 records. It is important to remember that the graph representation only consists of nodes that have outlinks. If a node has no outlinks, ie, its a "dangling node" - then it would not be represented in this record list. If the graph representation consisted of nodes with empty outlinks too, then taking the count would reveal all nodes in the graph. 
 # MAGIC 
-# MAGIC > __b)__ Type your answer here! 
-# MAGIC 
-# MAGIC 5781290 records. This is not the same as the number of total nodes because there might be dangling nodes
-# MAGIC 
-# MAGIC > __d)__ Type your answer here!  
-# MAGIC 
-# MAGIC 9,410,987 dangling nodes 
+# MAGIC > __d)__ The number of dangling nodes are given by the total number of nodes - nodes with an outlink. This value is 15192277 - 5781290  = 9,410,987 dangling nodes 
 
 # COMMAND ----------
 
@@ -489,11 +483,19 @@ def count_nodes(dataRDD):
     Returns: integer count 
     """    
     ############## YOUR CODE HERE ###############
-    totalCount = dataRDD.map(lambda x: x.split('\t')) \
-                        .flatMap(lambda x: [x[0]] + list(json.loads(x[1].replace("\'", "\"")).keys())).distinct().count() 
-                        #.flatMap(lambda x: [x[0]]+list(x[1].keys()))
-    
-    #print(totalCount.collect())
+    def combineAllNodesIntoList(entry):
+      '''
+      input: "2\t{'3': 1}"
+      output: ['2', '3']
+      '''
+      import ast
+      n1, dicStr = entry.split('\t')
+      dic = ast.literal_eval(dicStr)
+      return list(dic.keys()) + [str(n1)]
+      
+    totalCount = dataRDD.map(lambda x: combineAllNodesIntoList(x)) \
+                        .flatMap(lambda x: x).distinct().count() 
+                        
     ############## (END) YOUR CODE ###############   
     return totalCount
 
@@ -536,11 +538,9 @@ print(f'Total Nodes: {tot}')
 
 # MAGIC %md ### Q6 Student Answers:
 # MAGIC 
-# MAGIC > __b)__ Type your answer here! 
+# MAGIC > __b)__ In PageRank, we use the out degree of a node to calculate the page rank probability in the `hyperlink matrix` (the matrix associated with the 1-alpha term). We emit the probability from a node `n` as `(total_prob_node_n)/(out_degree_node_n)`  
 # MAGIC 
-# MAGIC > __c)__ Type your answer here! 
-# MAGIC 
-# MAGIC It means it does not have edges leading away from the node. These nodes will be set as 1/n 
+# MAGIC > __c)__ Nodes with an outdegree of 0 are dangling nodes - ie, once a random surfer reaches here, it is not possible for them to come out of this state. This causes the graph to become non-irreducible. In PageRank, these are handled using a teleportation matrix. We take the incoming mass to the dangling node and we re-distribute the mass to all the other nodes of the graph with probability `m/|G|`. Here `m` represents the incoming probability mass to the dangling node, and `|G|` represents the size of the graph.
 
 # COMMAND ----------
 
@@ -553,24 +553,29 @@ def count_degree(dataRDD, n):
         avgDegree - (float) average out-degree for non-dangling nodes
         sampledCounts - (list of integers) out-degree for n randomly sampled non-dangling nodes
     """
-    # helper func
+    ############## YOUR CODE HERE ###############\
     def parse(line):
-        node, edges = line.split('\t')
-        return (node, ast.literal_eval(edges))
+      '''
+      input: "1\t{'3': 1,'4': 10}"
+      output: ['1', 2]
+      '''
+      node, dicStr = line.split('\t')
+      # parse value as dictionary and emit length of dictionary, length represents out degree
+      # we don't have to worry about unique outdegree nodes (in the value) because we are looking at a dictionary
+      # all keys in a dictionary are unique by definition
+      return (node, len(ast.literal_eval(dicStr)))
     
-    ############## YOUR CODE HERE ###############
-  
-    parsedRDD = dataRDD.map(lambda x: parse(x)) \
-                      .map(lambda x: (x[0], len(x[1])))
-                        
+    # cache the RDD so it can be reused again
+    parsedRDD = dataRDD.map(lambda x: parse(x)).cache()
+
+    # sort by top 10 decreasing order of outdegree length
     top = parsedRDD.takeOrdered(10, key=lambda x: -x[1])
     
-    avgDegree = parsedRDD.map(lambda x: x[1]).mean() \
-                  
-    sampledCounts = parsedRDD.map(lambda x: x[1]) \
-                             .takeSample(False, n)
-    
-    #print(sampledCounts)
+    # find the average outdegree by emitting the outdegree in a map call
+    avgDegree = parsedRDD.map(lambda x: x[1]).mean()
+
+    # sample without replacement
+    sampledCounts = parsedRDD.map(lambda x: x[1]).takeSample(False, n)
     ############## (END) YOUR CODE ###############
     
     return top, avgDegree, sampledCounts
