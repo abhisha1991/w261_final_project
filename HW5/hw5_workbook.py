@@ -641,13 +641,9 @@ display(plt.show())
 
 # MAGIC %md ### Q7 Student Answers:
 # MAGIC 
-# MAGIC > __a)__ Type your answer here! 
+# MAGIC > __a)__ N is the total number of nodes in the graph. In PageRank, we aim to find the relative importance of one graph node (page) over another. Initially, we initialize all nodes of the graph to be visited with equal probability. This is the motivation to initialize the node's rank with `1/N`. The hope is that after convergence of page rank, we will get the true relative probabilities for each node. We also include our dangling nodes in this setting as we don't wish to discard them from our computation.
 # MAGIC 
-# MAGIC n is the total number of nodes. We initalize each rank to 1/n so that we don't lose the dangling node. Instead, the importance of the node will be distributed equally among the other nodes in the graph. 
-# MAGIC 
-# MAGIC > __b)__ Type your answer here! 
-# MAGIC 
-# MAGIC It will be more efficient to compute n before initializing records for each dangling node because we can broadcast n to all the mappers 
+# MAGIC > __b)__ It will be more efficient to find N before initializing records for dangling nodes. The aim is to find all nodes in the graph (including the dangling nodes) in a single map reduce task as we did in Q5. Once we have this total value of N, we can initialize all nodes in the graph together via a map broadcast. This is better than having to do 2 passes of the data - one where we are interested in just the "keys" of records (ie, non-dangling nodes) and another where we are also interested in the record "values" (ie, dangling and non-dangling nodes).  
 
 # COMMAND ----------
 
@@ -668,27 +664,43 @@ def initGraph(dataRDD):
     """
     ############## YOUR CODE HERE ###############
 
-    # write any helper functions here 
-    
-    def nodeAdjList(nodePairs, n):
-      node, edges = nodePairs
+    ##### HELPERS ######## 
+    def emitNodePayload(entry):
+      '''
+      input: "2\t{'3': 1, '4': 10}"
+      output: ('2', (1/n, [kvp('3',1), kvp('4',10)]))
+      '''
+      import ast
+      node, dicStr = entry.split('\t')
+      edges = ast.literal_eval(dicStr)
       
-      yield (node, (1/n.value, list(edges.items())))
-      for key in edges:
-        yield (key,(1/n.value,[]))
-
+      # n is already accessible here since it has been broadcasted
+      # wt is a float
+      wt = 1.0 * (1/n.value)
+      
+      # emit node and its payload
+      yield (node, (wt, list(edges.items())))
+      
+      # for each neighbor of 'node', emit an empty list - this handles dangling nodes emission to get full graph 
+      # non-dangling nodes are also emitted with empty list (can be later reduced via list join)
+      for key in edges.keys():
+        yield (key, (wt, []))
+      
+    def dedupeEdgeListValues(payload1, payload2):
+      prob1, edgelist1 = payload1 
+      prob2, edgelist2 = payload2
+      # set removes repeated values from the 2 edge lists
+      # list() converts the set back to list to preserve structure of overall payload
+      # emit only prob1 since we don't want to combine 1/n probabilities
+      return (prob1, list(set(edgelist1 + edgelist2)))
+      
+    ##### MAIN ########
     
-    # write your main Spark code here
-    
-    #function from q5 to get total nodes
+    # brodcast total number of graph nodes
+    # calculation below is from Q5
     n = sc.broadcast(count_nodes(dataRDD))
     
-    graphRDD = dataRDD.map(lambda x: x.split('\t')) \
-                      .map(lambda x: (x[0], json.loads(x[1].replace("\'", "\"")))) \
-                      .flatMap(lambda x: nodeAdjList(x,n)) \
-                      .reduceByKey(lambda x,y: (x[0], x[1]+y[1]))
-    
-    #print(graphRDD.collect())
+    graphRDD = dataRDD.flatMap(lambda x: emitNodePayload(x)).reduceByKey(lambda x, y: dedupeEdgeListValues(x, y))
     ############## (END) YOUR CODE ##############
     
     return graphRDD
