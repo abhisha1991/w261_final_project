@@ -700,7 +700,7 @@ def initGraph(dataRDD):
     # calculation below is from Q5
     n = sc.broadcast(count_nodes(dataRDD))
     
-    graphRDD = dataRDD.flatMap(lambda x: emitNodePayload(x)).reduceByKey(lambda x, y: dedupeEdgeListValues(x, y))
+    graphRDD = dataRDD.flatMap(lambda x: emitNodePayload(x)).reduceByKey(lambda x, y: dedupeEdgeListValues(x, y)).cache()
     ############## (END) YOUR CODE ##############
     
     return graphRDD
@@ -765,17 +765,12 @@ print(f'... initialization continued: {time.time() - start} seconds')
 
 # MAGIC %md ### Q8 Student Answers:
 # MAGIC 
-# MAGIC > __a)__ Type your answer here!
+# MAGIC > __a)__ There is a `1/|G|` chance of landing at any particular page, where `|G|` is the number of nodes in the graph. Probability $\alpha is the likelihood that the random surfer executes a random jump (also called the teleportation factor), and 1-$\alpha is the probability that the random surfer follows a hyperlink (also called the damping factor).
 # MAGIC 
 # MAGIC 
+# MAGIC > __b)__ `m` is the dangling node PageRank mass that is "lost" due to being "black-holed" within the dangling node. This is the mass we need to distribute back into the graph across all the nodes to preserve our page rank calculations, and avoid getting "stuck" at the dangline node. We do this redistribution by dividing the mass by |G| (length of the graph) and adding it to the original page rank probability of the node (in the damping term of PageRank caclulation). Note that non-dangling nodes will have `m=0`, so they will only contribute their PageRank mass. 
 # MAGIC 
-# MAGIC > __b)__ Type your answer here! 
-# MAGIC 
-# MAGIC m is the sum of the dangling nodes mass. We divide by G because it needs to be redistributed among all the nodes.  
-# MAGIC 
-# MAGIC > __c)__ Type your answer here! 
-# MAGIC 
-# MAGIC Total mass should be 1 after each iteration 
+# MAGIC > __c)__ Total mass should be 1 across the graph after each iteration (sum of page rank probabilities is 1, and gets redistributed each iteration). 
 
 # COMMAND ----------
 
