@@ -792,10 +792,6 @@ class FloatAccumulatorParam(AccumulatorParam):
 
 # COMMAND ----------
 
-#############################################################################
-# CODE THAT WAS SENT TO VINICIO
-#############################################################################
-
 # part d - job to run PageRank (RUN THIS CELL AS IS)
 def runPageRank(graphInitRDD, alpha = 0.15, maxIter = 10, verbose = True):
     """
@@ -808,72 +804,118 @@ def runPageRank(graphInitRDD, alpha = 0.15, maxIter = 10, verbose = True):
     Returns:
         steadyStateRDD - pair RDD of (node_id, pageRank)
     """
-    # teleportation:
+    # teleportation factor broadcast
     a = sc.broadcast(alpha)
     
-    # damping factor:
-    d = sc.broadcast(1-a.value)
+    # damping factor broadcast
+    d = sc.broadcast(1 - a.value)
     
     # get total node count 
     n_bc = sc.broadcast(graphInitRDD.count())
-
-    # initialize accumulators for dangling mass & total mass
-    #mmAccum = sc.accumulator(0.0, FloatAccumulatorParam())
-    #totAccum = sc.accumulator(0.0, FloatAccumulatorParam())
     
     ############## YOUR CODE HERE ###############
     
-    # write your helper functions here, 
-    # please document the purpose of each clearly 
-    # for reference, the master solution has 5 helper functions.
-
-    # calculate total weight of all of the edges 
-    def totalWeight(edges):
-      totWeight = 0 
-      for i, j in edges:
-        totWeight += j
-      return totWeight
+    ##### HELPERS ########
     
-    # calculate 1/n * weight/totalWeight and return (edge, (calculation, []))
-    # not sure what this is called/what a good name is 
-    def neighborNodeScore(x):
-      sourceNode, neighbors, totWeight = x
-      yield (sourceNode, (0,neighbors[1]))
-      for neighbor, weight in neighbors[1]:
-        yield (neighbor, (neighbors[0]*weight/totWeight, []))
+    # calculate total weight of all of the edges 
+    def totalNeighborWeight(edges):
+      '''
+      example: ('5', (0.09, [('2', 1), ('4', 3), ('6', 1)]))
+      edges will be this component: [('2', 1), ('4', 3), ('6', 1)]
+      output: 1+3+1 = 5
+      '''
+      return sum(j for i, j in edges)
+    
+    def emitPageRankContribution(x):
+      '''
+      example x: ('5', (0.09, [('2', 10), ('4', 3), ('6', 1)]), 14)
+      x is the augmented node payload, with total neighbor weight
+      
+      output is the unaugmented payload after calculations, ie, WITHOUT total neighbor weight
+      example: ('5', (0.09, [('2', 10), ('4', 3), ('6', 1)]))
+      '''
+      # unpack the input
+      sourceNode, sourceNodePayload, totWeight = x
+      probSourceNode, edges = sourceNodePayload
+      
+      # emit source node with edges to preserve graph structure in memory stream
+      # emit 0 probability because we are just emitting this record to maintain the original graph structure in memory
+      # the source node's probability will get tallied up in the reduce job
+      yield (sourceNode, (0, edges))
+      
+      # each neighbor gets a portion of the source node's probability (ie, page rank designation)
+      # the portion is decided as a function of relative edge weight of the neighbor (seen from the perspective of the source node)
+      # if all edge weights were equal (as in async), this would just be "probSourceNode / out_degree_source_node"
+      # we emit an empty edge graph associated with the neighbor, which later gets tallied up in the reduce job
+      for neighbor, weight in edges:
+        yield (neighbor, (probSourceNode * weight/totWeight, []))
           
-            
-    # write your main Spark Job here (including the for loop to iterate)
-    # for reference, the master solution is 21 lines including comments & whitespace
-    print(maxIter)
+    def isDanglingNode(x):
+      '''
+      example of dangling node: ('1', (0.09, []))
+      dangling node will have no outgoing links, ie, empty neighbor list
+      '''
+      return x[1][1] == []
+    
+    def getNodeProbability(x):
+      '''
+      example of node x: ('1', (0.09, []))
+      '''
+      return x[1][0]
+    
+    def combinePageRankContributionAndEdgeListValues(payload1, payload2):
+      '''
+      payload1: (0.09, [('2', 10), ('4', 3), ('6', 1)])
+      payload2: (0.11, [('2', 10), ('5', 1)])
+      
+      output: (0.2, [('2', 10), ('5', 1), ('4', 3), ('6', 1)])
+      '''
+      prob1, edgelist1 = payload1 
+      prob2, edgelist2 = payload2
+      return (prob1 + prob2, list(set(edgelist1 + edgelist2)))
+    
+    def calculateTotalPageRank(x):
+      '''
+      example x: (0.09, [('2', 10), ('4', 3), ('6', 1)])
+      '''
+      # note that alpha, damping factor and total number of nodes in graph
+      # these are all available due to broadcast
+      teleport_term = a.value/n_bc.value
+      non_teleport_term = d.value * (danglingMass.value/n_bc.value + x[0])
+      pageRank = teleport_term + non_teleport_term
+      return (pageRank, x[1])
+      
+    ##### MAIN ########
+    # driver program that iterates over all map reduce jobs
     for i in range(maxIter):
       # initialize accumulators for dangling mass & total mass
+      # do this init for every iteration
       mmAccum = sc.accumulator(0.0, FloatAccumulatorParam())
       totAccum = sc.accumulator(0.0, FloatAccumulatorParam())
 
       # get dangling node mass 
-      graphInitRDD.filter(lambda x: x[1][1] == []).foreach(lambda x: mmAccum.add(x[1][0]))
-      #mmAccum.add(graphInitRDD.filter(lambda x: x[1][1] == []).collect()[0][1][0])
-      #mmAccum_bc = sc.broadcast(mmAccum.value)
-      mmAccum_bc = mmAccum.value
-
-      # mapreduce 
-      graphInitRDD = graphInitRDD.map(lambda x: (x[0], x[1], totalWeight(x[1][1]))) \
-                                  .flatMap(lambda x: (neighborNodeScore(x))) \
-                                  .reduceByKey(lambda x,y: (x[0]+y[0], x[1]+y[1])).cache()
+      graphInitRDD.filter(lambda x: isDanglingNode(x)).foreach(lambda x: mmAccum.add(getNodeProbability(x)))
+      danglingMass = sc.broadcast(mmAccum.value)
       
+      # main map reduce job 
+      # x example: ('5', (0.09, [('2', 10), ('4', 3), ('6', 1)]))
+      # first map call "augments" this payload to include total neighbor weight, ie, ('5', (0.09, [('2', 10), ('4', 3), ('6', 1)]), 14)
+      # the second map call "de-augments" the payload to get back to our original structure: ('5', (0.09, [('2', 10), ('4', 3), ('6', 1)]))
+      graphInitRDD = graphInitRDD.map(lambda x: (x[0], x[1], totalNeighborWeight(x[1][1]))) \
+                                 .flatMap(lambda x: emitPageRankContribution(x)) \
+                                 .reduceByKey(lambda x, y: combinePageRankContributionAndEdgeListValues(x, y)).cache()
       
-      graphInitRDD = graphInitRDD.reduceByKey(lambda x,y: (x[0]+y[0], x[1]+y[1])).cache()
-    
-      graphInitRDD = graphInitRDD.mapValues(lambda x: (a.value/n_bc.value + d.value*(mmAccum_bc/n_bc.value+x[0]), x[1]))
+      # calculate the page rank with the teleportation and damping factors
+      #graphInitRDD = graphInitRDD.mapValues(lambda x: (a.value/n_bc.value + d.value*(danglingMass.value/n_bc.value+x[0]), x[1]))
+      graphInitRDD = graphInitRDD.mapValues(lambda x: calculateTotalPageRank(x))
       
       # check if totAccum is equal to 1 
       graphInitRDD.foreach(lambda x: totAccum.add(x[1][0]))
-      print(i, " check total accumulator: ", totAccum.value)
-      #print("dangling mass ", mmAccum_bc)
-    
+      print("Checking total accumulator for iteration {}, value of total probability in the graph is {}: ".format(i, totAccum.value))
+      # assert totAccum.value == 1
+      
+    # emit the node ID and its page rank in the end, ie, ('5', 0.09) - neighbors can be dropped
     steadyStateRDD = graphInitRDD.map(lambda x: (x[0], x[1][0]))
-    #print(graphInitRDD.collect())
     ############## (END) YOUR CODE ###############
     
     return steadyStateRDD
