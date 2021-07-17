@@ -895,7 +895,6 @@ def runPageRank(graphInitRDD, alpha = 0.15, maxIter = 10, verbose = True):
 
       # get dangling node mass 
       graphInitRDD.filter(lambda x: isDanglingNode(x)).foreach(lambda x: mmAccum.add(getNodeProbability(x)))
-      danglingMass = sc.broadcast(mmAccum.value)
       
       # main map reduce job 
       # x example: ('5', (0.09, [('2', 10), ('4', 3), ('6', 1)]))
@@ -905,14 +904,15 @@ def runPageRank(graphInitRDD, alpha = 0.15, maxIter = 10, verbose = True):
                                  .flatMap(lambda x: emitPageRankContribution(x)) \
                                  .reduceByKey(lambda x, y: combinePageRankContributionAndEdgeListValues(x, y)).cache()
       
-      # calculate the page rank with the teleportation and damping factors
-      #graphInitRDD = graphInitRDD.mapValues(lambda x: (a.value/n_bc.value + d.value*(danglingMass.value/n_bc.value+x[0]), x[1]))
+      # calculate the page rank with the teleportation and damping factors, broadcast dangling mass before that
+      danglingMass = sc.broadcast(mmAccum.value)
       graphInitRDD = graphInitRDD.mapValues(lambda x: calculateTotalPageRank(x))
       
       # check if totAccum is equal to 1 
       graphInitRDD.foreach(lambda x: totAccum.add(x[1][0]))
-      print("Checking total accumulator for iteration {}, value of total probability in the graph is {}: ".format(i, totAccum.value))
-      # assert totAccum.value == 1
+      if verbose:
+        print("Checking total accumulator for iteration {}, value of total probability in the graph is {} ".format(i, totAccum.value))
+      assert totAccum.value > 0.99
       
     # emit the node ID and its page rank in the end, ie, ('5', 0.09) - neighbors can be dropped
     steadyStateRDD = graphInitRDD.map(lambda x: (x[0], x[1][0]))
@@ -922,119 +922,9 @@ def runPageRank(graphInitRDD, alpha = 0.15, maxIter = 10, verbose = True):
 
 # COMMAND ----------
 
-# part d - job to run PageRank (RUN THIS CELL AS IS)
-def runPageRank(graphInitRDD, alpha = 0.15, maxIter = 10, verbose = True):
-    """
-    Spark job to implement page rank
-    Args: 
-        graphInitRDD  - pair RDD of (node_id , (score, edges))
-        alpha         - (float) teleportation factor
-        maxIter       - (int) stopping criteria (number of iterations)
-        verbose       - (bool) option to print logging info after each iteration
-    Returns:
-        steadyStateRDD - pair RDD of (node_id, pageRank)
-    """
-    # teleportation:
-    a = sc.broadcast(alpha)
-    
-    # damping factor:
-    d = sc.broadcast(1-a.value)
-    
-    # get total node count 
-    n_bc = sc.broadcast(graphInitRDD.count())
-
-    # initialize accumulators for dangling mass & total mass
-    #mmAccum = sc.accumulator(0.0, FloatAccumulatorParam())
-    #totAccum = sc.accumulator(0.0, FloatAccumulatorParam())
-    
-    ############## YOUR CODE HERE ###############
-    
-    # write your helper functions here, 
-    # please document the purpose of each clearly 
-    # for reference, the master solution has 5 helper functions.
-
-    # calculate total weight of all of the edges 
-    def totalWeight(edges):
-      totWeight = 0 
-      for i, j in edges:
-        totWeight += j
-      return totWeight
-    
-    # calculate 1/n * weight/totalWeight and return (edge, (calculation, []))
-    # not sure what this is called/what a good name is 
-    def neighborNodeScore(x):
-      sourceNode, neighbors, totWeight = x
-      yield (sourceNode, (0,neighbors[1]))
-      for neighbor, weight in neighbors[1]:
-        yield (neighbor, (neighbors[0]*weight/totWeight, []))
-        
-    def test(x):
-      if x[1][1] == []:
-        return True
-      else:
-        return False
-          
-            
-    # write your main Spark Job here (including the for loop to iterate)
-    # for reference, the master solution is 21 lines including comments & whitespace
-    print(maxIter)
-    for i in range(maxIter):
-      # initialize accumulators for dangling mass & total mass
-      mmAccum = sc.accumulator(0.0, FloatAccumulatorParam())
-      totAccum = sc.accumulator(0.0, FloatAccumulatorParam())
-
-      # TEST PRINT 
-      #data = graphInitRDD.collect()
-      #for item in data: 
-        #print("before graphInitRDD.filter", item)
-        
-      # get dangling node mass 
-      # SOMETHING WEIRD HAPPENS HERE. WE LOSE MASS 
-      graphInitRDD.filter(test).foreach(lambda x: mmAccum.add(x[1][0]))
-      #graphInitRDD.filter(test).map(lambda x: x[1][0]).foreach(lambda x: mmAccum.add(x))
-      #mmAccum.add(graphInitRDD.filter(lambda x: x[1][1] == []).collect()[0][1][0])
-      #mmAccum_bc = sc.broadcast(mmAccum.value)
-      mmAccum_bc = mmAccum.value
-      
-      print("dangling mass ", mmAccum_bc)
-      
-      
-      # TEST PRINTS
-      data = graphInitRDD.collect()
-      for item in data: 
-        print("** after graphInitRDD.filter **", item)
-
-      
-      # mapreduce 
-      graphInitRDD = graphInitRDD.map(lambda x: (x[0], x[1], totalWeight(x[1][1]))) \
-                                  .flatMap(lambda x: (neighborNodeScore(x))) \
-      
-
-      # TEST PRINTS
-      data = graphInitRDD.collect()
-      for item in data: 
-        print("after weight calculation", item)
-      
-      graphInitRDD = graphInitRDD.reduceByKey(lambda x,y: (x[0]+y[0], x[1]+y[1])).cache()
-    
-      graphInitRDD = graphInitRDD.mapValues(lambda x: (a.value/n_bc.value + d.value*(mmAccum_bc/n_bc.value+x[0]), x[1]))
-      
-      # check if totAccum is equal to 1 
-      graphInitRDD.foreach(lambda x: totAccum.add(x[1][0]))
-      print(i, " check total accumulator: ", totAccum.value)
-      #print("dangling mass ", mmAccum_bc)
-    
-    steadyStateRDD = graphInitRDD.map(lambda x: (x[0], x[1][0]))
-    print(graphInitRDD.collect())
-    ############## (END) YOUR CODE ###############
-    
-    return steadyStateRDD
-
-# COMMAND ----------
-
 # part d - run PageRank on the test graph (RUN THIS CELL AS IS)
 # NOTE: while developing your code you may want turn on the verbose option
-nIter = 2
+nIter = 20
 testGraphRDD = initGraph(testRDD)
 start = time.time()
 test_results = runPageRank(testGraphRDD, alpha = 0.15, maxIter = nIter, verbose = False)
@@ -1077,7 +967,9 @@ top_20 = full_results.takeOrdered(20, key=lambda x: - x[1])
 # COMMAND ----------
 
 # Save the top_20 results to disc for use later. So you don't have to rerun everything if you restart the cluster.
+dbutils.fs.put(hw5_path+"top_20_wiki.csv", pd.DataFrame(top_20, columns = ["Index", "PageRank"]).to_csv()) 
 
+display(dbutils.fs.ls(hw5_path))
 
 # COMMAND ----------
 
