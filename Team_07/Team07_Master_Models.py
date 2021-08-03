@@ -42,7 +42,7 @@ display(dbutils.fs.ls("/mnt/mids-w261/datasets_final_project/"))
 # data = spark.read.parquet(f"{blob_url}/joined_eda/*")
 # data = spark.read.parquet(f"{blob_url}/full_join_2015_v0/*")
 # data = spark.read.parquet(f"{blob_url}/full_join_with_aggs_v0/*")
-data = spark.read.parquet(f"{blob_url}/model_features_v1/*")
+data = spark.read.parquet(f"{blob_url}/model_features_v6/*")
 
 
 # COMMAND ----------
@@ -336,7 +336,7 @@ def get_best_param_dic_metrics(best_model, displayKeys=False):
 
 # MAGIC %md
 # MAGIC 
-# MAGIC ## Feature Engineering (DataType Transformation, Data Prep)
+# MAGIC ## Feature Engineering (DataType Transformation, Data Prep, ML Algorithms)
 
 # COMMAND ----------
 
@@ -368,7 +368,7 @@ def get_std_features(data):
     pass
     
   # likewise, there are some indicator variables that are numeric (int), but need to be string (categorical)
-  ind_vars = [x for x in numeric_features if x.endswith("_null")]
+  ind_vars = [x for x in numeric_features if x.endswith("_null") or x.endswith("_ind")]
   for x in ind_vars:
     try:
       numeric_features.remove(x)
@@ -412,17 +412,26 @@ def get_std_desired_numeric(df, hypothesis=1, custom_cols_to_drop=[]):
     # all numeric features in the df
     desired_numeric = [x for x in numeric_features if x in df.columns]
   elif hypothesis == 2:
-    desired_numeric = []
+    # includes mandatory features like origin temp and flight dist (or planned duration) + percentage features
+    desired_numeric = ['pct_delayed_from_origin', 'pct_delayed_to_dest', 'pct_delayed_for_route', 'pct_delayed_from_state', 'pct_delayed_to_state', 'flight_distance', 'origin_tmp_c']
   elif hypothesis == 3:
-    desired_numeric = []
+    # includes mandatory features like origin temp and flight dist (or planned duration) + weather features
+    desired_numeric = ['origin_altitude', 'origin_wnd_speed', 'origin_cig_cloud_agl', 'origin_vis_dist', 'origin_tmp_c', 'origin_dew_c', 'origin_slp_p',
+                       'dest_altitude', 'planned_duration']
   elif hypothesis == 4:
-    desired_numeric = []
+    # includes mandatory features like origin temp and flight dist (or planned duration) + computed columns
+    desired_numeric = ['flight_distance', 'origin_tmp_c', 'pct_delayed_from_origin', 'mean_delay_from_origin', 'pct_delayed_to_dest', 
+                       'mean_delay_to_dest', 'pct_delayed_for_route', 'mean_delay_for_route', 'pct_delayed_from_state', 'mean_delay_from_state', 
+                       'pct_delayed_to_state', 'mean_delay_to_state']
   else:
     raise Exception("Invalid hypothesis number!")
 
   # drop any columns that are a no-no in the model
   desired_numeric = [x for x in desired_numeric if x not in cols_to_drop + custom_cols_to_drop]
-
+  
+  # we must convert dep_is_delayed to numeric
+  desired_numeric = list(set(desired_numeric + ['dep_is_delayed']))
+  
   # confirm no duplicates
   assert(len(desired_numeric) == len(set(desired_numeric)))
 
@@ -436,11 +445,11 @@ def get_std_desired_numeric(df, hypothesis=1, custom_cols_to_drop=[]):
       raise Exception("Feature: {} is not a registered numeric feature".format(dn))
     
   # ensure that the desired numeric columns are indeed converted to numeric
-  # for example, this will ensure that origin_altitude is converted to int
+  # for example, this will ensure that dep_is_delayed is converted to int
   to_convert = get_std_to_convert_numeric(df, desired_numeric)
   df = set_feature_dtype(df, to_convert, dtype='int')
 
-  return df, list(set(desired_numeric + ['dep_is_delayed']))
+  return df, list(set(desired_numeric))
 
 def get_std_desired_categorical(df, hypothesis=1, custom_cols_to_drop=[]):
   all_cols, cols_to_consider, cols_to_drop, numeric_features, categorical_features, dt_features, bool_features = get_std_features(data)
@@ -449,16 +458,22 @@ def get_std_desired_categorical(df, hypothesis=1, custom_cols_to_drop=[]):
     # all categorical features in df
     desired_categorical = [x for x in categorical_features if x in df.columns]
   elif hypothesis == 2:
-    desired_categorical = []
+    # includes mandatory features = time related + origin/dest/dist + carrier + holiday + computed score (potential for delay)
+    desired_categorical = ['month', 'day_of_month', 'day_of_week', 'dep_hour', 'arr_hour', 'origin_ICAO', 'dest_ICAO', 'carrier', 'distance_group', 'holiday', 'poten_for_del']
   elif hypothesis == 3:
-    desired_categorical = []
+    # includes mandatory features = time related + origin/dest/dist + carrier + holiday + computed score (potential for delay) + weather related 
+    desired_categorical = ['month', 'day_of_month', 'day_of_week', 'dep_hour', 'arr_hour', 'origin_ICAO', 'dest_ICAO', 'carrier', 'distance_group', 
+                           'holiday', 'poten_for_del', 'canceled', 'origin_cig_cavok', 'origin_wnd_type', 'origin_vis_var', 'origin_city', 'dest_city']
   elif hypothesis == 4:
-    desired_categorical = []
+    # includes mandatory features = time related + origin/dest/dist + carrier + holiday + computed score (potential for delay) + computed indicators
+    desired_categorical = ['month', 'day_of_month', 'day_of_week', 'dep_hour', 'arr_hour', 'origin_ICAO', 'dest_ICAO', 'carrier', 'holiday',
+                           'weather_window_del_ind', 'carrier_window_del_ind', 'security_window_del_ind', 'late_ac_window_del_ind', 'nas_window_del_ind',
+                           'oa_avg_del_ind', 'da_avg_del_ind', 'carrier_avg_del_ind', 'poten_for_del', 'prev_fl_del']
   else:
     raise Exception("Invalid hypothesis number!")
 
-  # drop any columns that are a no-no in the model
-  desired_categorical = [x for x in desired_categorical if x not in cols_to_drop + custom_cols_to_drop]
+  # drop any columns that are a no-no in the model and drop dep_is_delayed since it has to be numeric (int)
+  desired_categorical = [x for x in desired_categorical if x not in cols_to_drop + custom_cols_to_drop + ['dep_is_delayed']]
 
   # confirm no duplicates
   assert(len(desired_categorical) == len(set(desired_categorical)))
@@ -475,7 +490,7 @@ def get_std_desired_categorical(df, hypothesis=1, custom_cols_to_drop=[]):
   # ensure the vars are converted to strings
   df = set_feature_dtype(df, desired_categorical, dtype='string')
   
-  return df, desired_categorical
+  return df, list(set(desired_categorical))
 
 def get_std_desired_numeric_int(df, desired_numeric):  
   return [x for x in desired_numeric if get_feature_dtype(df, x) == 'int']
@@ -553,6 +568,70 @@ from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
 from pyspark.ml.classification import LogisticRegression
 from pyspark.ml import Pipeline
+
+def get_train_test_finalset_for_logit_2(train, test, custom_payload, drop_na = True, set_handle_invalid="keep"):
+  if custom_payload == None:
+    raise Exception("Custom payload cannot be null as it contains feature selection info")
+  
+  categorical_features = custom_payload["categorical_features"]
+  numeric_features = custom_payload["numeric_features"]
+  
+  stages = []
+  for feature in categorical_features:
+    # string index categorical features:
+    indexer = StringIndexer(inputCol=feature, outputCol = feature+'_index')
+    indexer.setHandleInvalid(set_handle_invalid)
+    # one-hot the categorical features:
+    one_hot_encoder = OneHotEncoder(inputCols=[indexer.getOutputCol()], outputCols=[feature+'_Indicator'])
+    stages += [indexer, one_hot_encoder]
+  
+  # convert_label
+  label_stringIdx = StringIndexer(inputCol = 'dep_is_delayed', outputCol = 'label')
+  stages += [label_stringIdx]
+  
+  # convert numerical features
+  vector_assembler = VectorAssembler(inputCols = numeric_features, outputCol="numeric_vec")
+  vector_assembler.setHandleInvalid(set_handle_invalid)
+  scaler = StandardScaler(inputCol="numeric_vec", outputCol="scaled_features_1")
+  
+  stages += [vector_assembler, scaler]
+  
+  # feature assembler
+  assemblerInputs = [feature + "_Indicator" for feature in categorical_features] + ['scaled_features_1']
+  assembler = VectorAssembler(inputCols=assemblerInputs, outputCol="scaled_features")
+  stages += [assembler]
+  pipeline = Pipeline(stages = stages)
+  pipelineModel = pipeline.fit(train)
+  
+  # comb_features = categorical_features + numeric_features + ['dep_is_delayed']
+  
+  # transforming the data using pipeline
+  df_train = pipelineModel.transform(train)
+  selectedCols = ['label', 'scaled_features'] # + comb_features
+  df_train = df_train.select(selectedCols)
+  df_test = pipelineModel.transform(test)
+  df_test = df_test.select(selectedCols)
+  
+  if verbose:
+    print("Training Dataset Count Before Dropping NA: " + str(df_train.count()))
+    print("Test Dataset Count Before Dropping NA: " + str(df_test.count()))
+    # display(training_set)
+  
+  if drop_na:  
+    df_train = df_train.dropna()
+    df_test = df_test.dropna()
+  else:
+    print("Drop NA is set to false, will not drop any rows...")
+  
+  if verbose and drop_na:
+    print("Training Dataset Count After Dropping NA: " + str(df_train.count()))
+    print("Test Dataset Count After Dropping NA: " + str(df_test.count()))
+    
+  # convert label to integer type, so we can compute performance metrics easily
+  df_train = df_train.withColumn('label', df_train['label'].cast(IntegerType()))  
+  df_test = df_test.withColumn('label', df_test['label'].cast(IntegerType()))
+  
+  return df_train, df_test
 
 def get_train_test_finalset_for_logit(train, test, custom_payload, drop_na = True, set_handle_invalid="keep"):
   
@@ -689,17 +768,23 @@ def model_train_logit(training_set, test_set, pipeline, lr, ts_split, custom_pay
   result = {}
   if custom_payload == None:
     raise Exception("Custom payload cannot be none as it contains hyper-param information")
+  
+  if pipeline != None:
+    # regular logit path
+    pipelineModel = pipeline.fit(training_set)
+    df_train = pipelineModel.transform(training_set)
+    df_train = df_train.select(['label', 'scaled_features'])
+
+    pipelineModel = pipeline.fit(test_set)
+    df_test = pipelineModel.transform(test_set)
+    df_test = df_test.select(['label', 'scaled_features'])
+  else:
+    # we've already fit the pipeline (logit_alt)
+    df_train = training_set
+    df_test = test_set
     
-  pipelineModel = pipeline.fit(training_set)
-  df_train = pipelineModel.transform(training_set)
-  df_train = df_train.select(['label', 'scaled_features'])
-  
-  pipelineModel = pipeline.fit(test_set)
-  df_test = pipelineModel.transform(test_set)
-  df_test = df_test.select(['label', 'scaled_features'])
-  
   # hyper param setting
-  lr.threshold = custom_payload["threshold"] if "threshold" in custom_payload.keys() else 0.2
+  lr.threshold = custom_payload["threshold"] if "threshold" in custom_payload.keys() else 0.5
   lr.maxIter = custom_payload["maxIter"] if "maxIter" in custom_payload.keys() else 10
   lr.regParam = custom_payload["regParam"] if "regParam" in custom_payload.keys() else 0.5
   
@@ -753,18 +838,15 @@ from pyspark.ml.linalg import Vectors
 import seaborn as sns
 from pyspark.ml.feature import QuantileDiscretizer
   
-def get_staged_data_for_rf(df, custom_payload):
+def get_staged_data_for_trees(train, test, custom_payload):
   stages = []
   if custom_payload == None:
     raise Exception("Custom payload cannot be none as it contains feature selection information")
-    
-  # create indexer for label class
-  labelIndexer = StringIndexer(inputCol="dep_is_delayed", outputCol="label").setHandleInvalid("keep")
-  stages += [labelIndexer]
   
   categorical_features = custom_payload["categorical_features"]
   numeric_features = custom_payload["numeric_features"] 
   num_buckets = custom_payload["num_buckets"] if "num_buckets" in custom_payload.keys() else 3
+  quantize_numeric = custom_payload["quantize_numeric"] if "quantize_numeric" in custom_payload.keys() else False
   
   for cat_feat in categorical_features:
     # string indexing categorical features 
@@ -774,26 +856,44 @@ def get_staged_data_for_rf(df, custom_payload):
     # add to stages
     stages += [stringIndexer, encoder]
   
-  for num_feat in numeric_features:
-    # bin numeric features 
-    num_bin = QuantileDiscretizer(numBuckets=num_buckets, inputCol=num_feat, outputCol=num_feat + "_Binned").setHandleInvalid("keep")
-    stages += [num_bin]
+  # create indexer for label class
+  labelIndexer = StringIndexer(inputCol="dep_is_delayed", outputCol="label").setHandleInvalid("keep")
+  stages += [labelIndexer]
   
-  # create vector assembler combining features into 1 vector
-  assemblerInputs = [c + "_One_Hot" for c in categorical_features] + [n + "_Binned" for n in numeric_features]
-  assembler = VectorAssembler(inputCols=assemblerInputs, outputCol="features").setHandleInvalid("keep")
-  stages += [assembler]
-  
+  print ("Quantizing numeric features is set to {}. If set to true, we will use buckets = {}".format(quantize_numeric, num_buckets))
+  if quantize_numeric:
+    for num_feat in numeric_features:
+      # bin numeric features 
+      num_bin = QuantileDiscretizer(numBuckets=num_buckets, 
+                                    inputCol=num_feat, outputCol=num_feat + "_Binned").setHandleInvalid("keep")
+      stages += [num_bin]
+
+    # create vector assembler combining features into 1 vector (combining binner and categorical features)
+    assemblerInputs = [c + "_One_Hot" for c in categorical_features] + [n + "_Binned" for n in numeric_features]
+    assembler = VectorAssembler(inputCols=assemblerInputs, outputCol="features").setHandleInvalid("keep")
+    stages += [assembler]
+  else:
+    num_assembler = VectorAssembler(inputCols=numeric_features, outputCol="numeric_vec").setHandleInvalid("skip")
+    stages += [num_assembler]
+    assemblerInputs = [f + "_One_Hot" for f in categorical_features] + ["numeric_vec"]
+    # create vector assembler combining categorical and numeric_vec
+    assembler = VectorAssembler(inputCols=assemblerInputs, outputCol="features")
+    stages += [assembler]
+    
   # notice no need for scaling in the case of RFs
-  partialPipeline = Pipeline().setStages(stages)
-  pipelineModel = partialPipeline.fit(df)
-  preppedDataDF = pipelineModel.transform(df)
+  # ensure that the model train eval functions for trees have feature column called "features" and not "scaled_features"
+  # it must match the output column from the processing phase here
+  pipeline = Pipeline().setStages(stages)
+  pipelineModel = pipeline.fit(train)
+  df_train = pipelineModel.transform(train)
   
-  features_comb = categorical_features + numeric_features + ["dep_is_delayed", "planned_departure_utc"]
-  selectedcols = ["label", "features"] + features_comb
-  dataset = preppedDataDF.select(selectedcols)
+  # features_comb = categorical_features + numeric_features + ["dep_is_delayed"]
+  selectedcols = ["label", "features"] # + features_comb
+  df_train = df_train.select(selectedcols)
+  df_test = pipelineModel.transform(test)
+  df_test = df_test.select(selectedcols)
   
-  return dataset
+  return df_train, df_test
 
 def model_train_rf(train, test, ts_split, custom_payload):
   if custom_payload == None:
@@ -808,10 +908,10 @@ def model_train_rf(train, test, ts_split, custom_payload):
   rf = RandomForestClassifier(labelCol="label", featuresCol="features")
   
   # hyper param setting
-  rf.maxBins = custom_payload["maxBins"] if "maxBins" in custom_payload.keys() else 20
-  rf.numTrees = custom_payload["numTrees"] if "numTrees" in custom_payload.keys() else 10
-  rf.minInstancesPerNode = custom_payload["minInstancesPerNode"] if "minInstancesPerNode" in custom_payload.keys() else 5
-  rf.minInfoGain = custom_payload["minInfoGain"] if "minInfoGain" in custom_payload.keys() else 0.10
+  rf.maxBins = custom_payload["maxBins"] if "maxBins" in custom_payload.keys() else 32
+  rf.numTrees = custom_payload["numTrees"] if "numTrees" in custom_payload.keys() else 20
+  rf.minInstancesPerNode = custom_payload["minInstancesPerNode"] if "minInstancesPerNode" in custom_payload.keys() else 10
+  rf.minInfoGain = custom_payload["minInfoGain"] if "minInfoGain" in custom_payload.keys() else 0.001
   print("Starting training of random forest model with parameters - max bins: {}, num trees: {}, minInstancesPerNode: {}, minInfoGain: {}"\
         .format(rf.maxBins, rf.numTrees, rf.minInstancesPerNode, rf.minInfoGain))
   
@@ -849,48 +949,6 @@ def model_train_rf(train, test, ts_split, custom_payload):
 # COMMAND ----------
 
 from pyspark.ml.tuning import ParamGridBuilder, CrossValidator
-  
-def get_staged_data_for_gbt(df, custom_payload):
-  stages = []
-  if custom_payload == None:
-    raise Exception("Custom payload cannot be none as it contains feature selection information")
-    
-  # create indexer for label class
-  labelIndexer = StringIndexer(inputCol="dep_is_delayed", outputCol="label").setHandleInvalid("keep")
-  stages += [labelIndexer]
-  
-  categorical_features = custom_payload["categorical_features"]
-  numeric_features = custom_payload["numeric_features"] 
-  num_buckets = custom_payload["num_buckets"] if "num_buckets" in custom_payload.keys() else 3
-  
-  for cat_feat in categorical_features:
-    # string indexing categorical features 
-    stringIndexer = StringIndexer(inputCol=cat_feat, outputCol=cat_feat + "_Index").setHandleInvalid("keep")
-    # one hot encode categorical features
-    encoder = OneHotEncoder(inputCols=[stringIndexer.getOutputCol()], outputCols=[cat_feat + "_One_Hot"])
-    # add to stages
-    stages += [stringIndexer, encoder]
-  
-  for num_feat in numeric_features:
-    # bin numeric features 
-    num_bin = QuantileDiscretizer(numBuckets=num_buckets, inputCol=num_feat, outputCol=num_feat + "_Binned").setHandleInvalid("keep")
-    stages += [num_bin]
-  
-  # create vector assembler combining features into 1 vector
-  assemblerInputs = [c + "_One_Hot" for c in categorical_features] + [n + "_Binned" for n in numeric_features]
-  assembler = VectorAssembler(inputCols=assemblerInputs, outputCol="features").setHandleInvalid("keep")
-  stages += [assembler]
-  
-  # notice no need for scaling in the case of RFs
-  partialPipeline = Pipeline().setStages(stages)
-  pipelineModel = partialPipeline.fit(df)
-  preppedDataDF = pipelineModel.transform(df)
-  
-  features_comb = categorical_features + numeric_features + ["dep_is_delayed", "planned_departure_utc"]
-  selectedcols = ["label", "features"] + features_comb
-  dataset = preppedDataDF.select(selectedcols)
-  
-  return dataset
 
 def model_train_gbt(train, test, ts_split, custom_payload):
   if custom_payload == None:
@@ -908,7 +966,7 @@ def model_train_gbt(train, test, ts_split, custom_payload):
   gbt.maxBins = custom_payload["maxBins"] if "maxBins" in custom_payload.keys() else 32
   gbt.maxDepth = custom_payload["maxDepth"] if "maxDepth" in custom_payload.keys() else 10
   gbt.minInstancesPerNode = custom_payload["minInstancesPerNode"] if "minInstancesPerNode" in custom_payload.keys() else 10
-  gbt.minInfoGain = custom_payload["minInfoGain"] if "minInfoGain" in custom_payload.keys() else 0.10
+  gbt.minInfoGain = custom_payload["minInfoGain"] if "minInfoGain" in custom_payload.keys() else 0.001
   gbt.maxIter = custom_payload["maxIter"] if "maxIter" in custom_payload.keys() else 10
   gbt.stepSize = custom_payload["stepSize"] if "stepSize" in custom_payload.keys() else 0.2
   print("Starting training of GBT model with parameters - max bins: {}, max depth: {}, minInstancesPerNode: {}, minInfoGain: {}, max iterations: {}, step size: {}"\
@@ -947,7 +1005,60 @@ def model_train_gbt(train, test, ts_split, custom_payload):
 
 # COMMAND ----------
 
+from pyspark.ml.classification import LinearSVC
 
+def model_train_svm(training_set, test_set, pipeline, ts_split, custom_payload):
+  result = {}
+  if custom_payload == None:
+    raise Exception("Custom payload cannot be none as it contains hyper-param information")
+  
+  if pipeline != None:
+    # regular svm implementation
+    pipelineModel = pipeline.fit(training_set)
+    df_train = pipelineModel.transform(training_set)
+    df_train = df_train.select(['label', 'scaled_features'])
+
+    pipelineModel = pipeline.fit(test_set)
+    df_test = pipelineModel.transform(test_set)
+    df_test = df_test.select(['label', 'scaled_features'])
+  else:
+    # svm_alt implementation
+    df_train = training_set
+    df_test = test_set
+  
+  svc = LinearSVC(featuresCol='scaled_features')
+  
+  # hyper param setting
+  svc.maxIter = custom_payload["maxIter"] if "maxIter" in custom_payload.keys() else 40
+  svc.regParam = custom_payload["regParam"] if "regParam" in custom_payload.keys() else 0.2
+  svc.aggregationDepth = custom_payload["aggregationDepth"] if "aggregationDepth" in custom_payload.keys() else 2
+  svc.tol = custom_payload["tol"] if "tol" in custom_payload.keys() else 1e-05
+  svc.threshold = custom_payload["threshold"] if "threshold" in custom_payload.keys() else 0.0001
+  
+  print("Starting training of SVM model with parameters - aggregationDepth: {}, max iterations: {}, L2regParam: {}, convergence tolerance: {}, threshold: {}"\
+        .format(svc.aggregationDepth, svc.maxIter, svc.regParam, svc.tol, svc.threshold))
+  
+  svcModel = svc.fit(df_train)
+  
+  # set up evaluators
+  evaluator_aupr = BinaryClassificationEvaluator(labelCol="label", metricName="areaUnderPR")
+  evaluator_auroc = BinaryClassificationEvaluator(labelCol="label", metricName="areaUnderROC")
+  
+  # review performance on training data 
+  train_model = svcModel.transform(df_train)
+  aupr = evaluator_aupr.evaluate(train_model)
+  auroc = evaluator_auroc.evaluate(train_model)
+  true_positive, true_negative, false_positive, false_negative, accuracy, precision, recall, f1_score = compute_classification_metrics(train_model)
+  result["train"] = (true_positive, true_negative, false_positive, false_negative, accuracy, precision, recall, f1_score, aupr, auroc, ts_split, svcModel.extractParamMap())
+  
+  # review performance on test data 
+  test_model = svcModel.transform(df_test)
+  aupr = evaluator_aupr.evaluate(test_model)
+  auroc = evaluator_auroc.evaluate(test_model)
+  true_positive, true_negative, false_positive, false_negative, accuracy, precision, recall, f1_score = compute_classification_metrics(test_model)
+  result["test"] = (true_positive, true_negative, false_positive, false_negative, accuracy, precision, recall, f1_score, aupr, auroc, ts_split, svcModel.extractParamMap())
+  
+  return result
 
 # COMMAND ----------
 
@@ -1112,20 +1223,20 @@ def get_aggregated_classification_metrcs(list_dic, dtype="test", with_display=Tr
     for n in list_nums:
       if n > maxi:
         maxi = n
-    return maxi
+    return float(maxi)
   
   def get_min(list_nums):
     mini = 1000
     for n in list_nums:
       if n < mini:
         mini = n
-    return mini
+    return float(mini)
   
   def get_mean(list_nums):
     meanval = 0
     for n in list_nums:
       meanval += n
-    return meanval/len(list_nums)
+    return 1.0 * meanval/len(list_nums)
   
   def get_median(list_nums):
     list_nums.sort()
@@ -1137,7 +1248,7 @@ def get_aggregated_classification_metrcs(list_dic, dtype="test", with_display=Tr
     else:
       median = list_nums[n//2]
       
-    return median
+    return float(median)
     
   todf = []
   for s in summary_type:
@@ -1223,6 +1334,12 @@ def model_train_and_eval(data, splits, max_iter=1, model="logit", collect_metric
       lr, pipeline = get_logit_pipeline(training_set, grid_search_mode=False)
       result = model_train_logit(training_set, test_set, pipeline, lr, split, custom_payload)
     
+    # a different function for processing the data is applied in this mode
+    elif model == "logit_alt":
+      training_set, test_set = get_train_test_finalset_for_logit_2(train, test, custom_payload)
+      lr = LogisticRegression(featuresCol = 'scaled_features', labelCol = 'label')
+      result = model_train_logit(training_set, test_set, None, lr, split, custom_payload)
+      
     # do not use gs version of logit - there is a bug - see func defn
     elif model == "logit_gs":
       training_set, test_set = get_train_test_finalset_for_logit(train, test, custom_payload)
@@ -1230,10 +1347,24 @@ def model_train_and_eval(data, splits, max_iter=1, model="logit", collect_metric
       result = model_train_logit_grid_search(training_set, test_set, pipeline, lr, split)
     
     elif model == "rf":
+      train, test = get_staged_data_for_trees(train, test, custom_payload)
       result = model_train_rf(train, test, split, custom_payload)
     
     elif model == "gbt":
+      train, test = get_staged_data_for_trees(train, test, custom_payload)
       result = model_train_gbt(train, test, split, custom_payload)
+    
+    elif model == "svm":
+      # reuses logit pre-processing
+      training_set, test_set = get_train_test_finalset_for_logit(train, test, custom_payload)
+      lr, pipeline = get_logit_pipeline(training_set, grid_search_mode=False)
+      result = model_train_svm(training_set, test_set, pipeline, split, custom_payload)
+    
+    # a different function for processing the data is applied in this mode
+    elif model == "svm_alt":
+      # reuses logit pre-processing
+      training_set, test_set = get_train_test_finalset_for_logit_2(train, test, custom_payload)
+      result = model_train_svm(training_set, test_set, None, split, custom_payload)
       
     else:
       raise Exception("Model name not found - given name is {}".format(model))
@@ -1279,6 +1410,7 @@ def get_values_from_hypothesis(hypothesis=1, custom_cols_to_drop=[]):
   # we will later add this col to cols_to_consider so its still part of our dataset
   try:
     desired_numeric_h.remove('dep_is_delayed')
+    desired_categorical_h.remove('dep_is_delayed')
   except:
     pass
   
@@ -1290,9 +1422,9 @@ def get_values_from_hypothesis(hypothesis=1, custom_cols_to_drop=[]):
   # create custom payload object
   custom_payload = {"categorical_features": desired_categorical_h, "numeric_features": desired_numeric_h}
   
-  return desired_categorical_h, desired_numeric_h, cols_to_consider_h, data_.select(cols_to_consider_h), custom_payload
+  return desired_categorical_h, desired_numeric_h, cols_to_consider_h, data_.select(cols_to_consider_h).cache(), custom_payload
 
-desired_categorical_logit, desired_numeric_logit, cols_to_consider_logit, data_logit, custom_payload_logit = get_values_from_hypothesis(1)
+desired_categorical_logit, desired_numeric_logit, cols_to_consider_logit, data_logit, custom_payload_logit = get_values_from_hypothesis(3)
 
 
 #### COMMON ####  
@@ -1314,7 +1446,7 @@ splits = get_timeseries_train_test_splits(data_logit, train_test_ratio=3, test_m
 # COMMAND ----------
 
 # perform actual training with logit model, get back list of dictionaries (each dic has train, test, val keys)
-logit_results = model_train_and_eval(data_logit, splits, max_iter=3, model = "logit", collect_metrics = True, custom_payload = custom_payload_logit)
+logit_results = model_train_and_eval(data_logit, splits, max_iter=2, model = "logit_alt", collect_metrics = True, custom_payload = custom_payload_logit)
 
 storage_logit_results = []
 for lrdic in logit_results:
@@ -1331,9 +1463,9 @@ get_aggregated_classification_metrcs(storage_logit_results, dtype="test", with_d
 print("Writing results to storage")
 # get back formatted dictionary list that is compatible to write to storage
 storage_logit_results = get_classification_metrics_for_storage_ingestion(storage_logit_results)
-write_model_to_storage(storage_logit_results, "logit_v1_test")
+write_model_to_storage(storage_logit_results, "logit_h3i2d_test")
 
-display(read_model_from_storage("logit_v1_test"))
+display(read_model_from_storage("logit_h3i2d_test"))
 
 # COMMAND ----------
 
@@ -1352,7 +1484,7 @@ verbose = True
 if verbose:
   print("Total number of rows in original dataset are {}".format(n))
 
-desired_categorical_rf, desired_numeric_rf, cols_to_consider_rf, data_rf, custom_payload_rf = get_values_from_hypothesis(1)
+desired_categorical_rf, desired_numeric_rf, cols_to_consider_rf, data_rf, custom_payload_rf = get_values_from_hypothesis(3)
 
 #### COMMON ####  
 if verbose:
@@ -1371,12 +1503,8 @@ splits = get_timeseries_train_test_splits(data_rf, train_test_ratio=3, test_mont
 
 # COMMAND ----------
 
-# data needs to be staged before it can be partitioned and trained on
-# pass the custom_payload here itself, as this piece does feature selection for us
-data_rf = get_staged_data_for_rf(data_rf, custom_payload_rf)
-
 # perform actual training with RF model
-rf_results = model_train_and_eval(data_rf, splits, max_iter=3, model = "rf", collect_metrics = True, custom_payload = custom_payload_rf)
+rf_results = model_train_and_eval(data_rf, splits, max_iter=2, model = "rf", collect_metrics = True, custom_payload = custom_payload_rf)
 
 storage_rf_results = []
 for rfdic in rf_results:
@@ -1392,9 +1520,9 @@ get_aggregated_classification_metrcs(storage_rf_results, dtype="test", with_disp
 print("Writing results to storage")
 # get back formatted dictionary list that is compatible to write to storage
 storage_rf_results = get_classification_metrics_for_storage_ingestion(storage_rf_results)
-write_model_to_storage(storage_rf_results, "rf_v1_test")
+write_model_to_storage(storage_rf_results, "rf_h3i2d_test")
 
-display(read_model_from_storage("rf_v1_test"))
+display(read_model_from_storage("rf_h3i2d_test"))
 
 # COMMAND ----------
 
@@ -1413,7 +1541,7 @@ verbose = True
 if verbose:
   print("Total number of rows in original dataset are {}".format(n))
 
-desired_categorical_gbt, desired_numeric_gbt, cols_to_consider_gbt, data_gbt, custom_payload_gbt = get_values_from_hypothesis(1)
+desired_categorical_gbt, desired_numeric_gbt, cols_to_consider_gbt, data_gbt, custom_payload_gbt = get_values_from_hypothesis(3)
     
 #### COMMON ####  
 if verbose:
@@ -1432,12 +1560,8 @@ splits = get_timeseries_train_test_splits(data_gbt, train_test_ratio=3, test_mon
 
 # COMMAND ----------
 
-# data needs to be staged before it can be partitioned and trained on
-# pass the custom_payload here itself, as this piece does feature selection for us
-data_gbt = get_staged_data_for_gbt(data_gbt, custom_payload_gbt)
-
 # perform actual training with GBT model
-gbt_results = model_train_and_eval(data_gbt, splits, max_iter=3, model = "gbt", collect_metrics = True, custom_payload = custom_payload_gbt)
+gbt_results = model_train_and_eval(data_gbt, splits, max_iter=1, model = "gbt", collect_metrics = True, custom_payload = custom_payload_gbt)
 
 storage_gbt_results = []
 for gbtdic in gbt_results:
@@ -1453,9 +1577,9 @@ get_aggregated_classification_metrcs(storage_gbt_results, dtype="test", with_dis
 print("Writing results to storage")
 # get back formatted dictionary list that is compatible to write to storage
 storage_gbt_results = get_classification_metrics_for_storage_ingestion(storage_gbt_results)
-write_model_to_storage(storage_gbt_results, "gbt_v1_test")
+write_model_to_storage(storage_gbt_results, "gbt_h3i1d_test")
 
-display(read_model_from_storage("gbt_v1_test"))
+display(read_model_from_storage("gbt_h3i1d_test"))
 
 # COMMAND ----------
 
@@ -1474,7 +1598,7 @@ verbose = True
 if verbose:
   print("Total number of rows in original data set are {}".format(data.count()))
 
-desired_categorical_svm, desired_numeric_svm, cols_to_consider_svm, data_svm, custom_payload_svm = get_values_from_hypothesis(1)
+desired_categorical_svm, desired_numeric_svm, cols_to_consider_svm, data_svm, custom_payload_svm = get_values_from_hypothesis(4)
 
 #### COMMON ####  
 if verbose:
@@ -1493,12 +1617,8 @@ splits = get_timeseries_train_test_splits(data_svm, train_test_ratio=3, test_mon
 
 # COMMAND ----------
 
-# data needs to be staged before it can be partitioned and trained on
-# pass the custom_payload here itself, as this piece does feature selection for us
-data_svm = get_staged_data_for_svm(data_svm, custom_payload_svm)
-
 # perform actual training with SVM model
-svm_results = model_train_and_eval(data_svm, splits, max_iter=2, model = "svm", collect_metrics = True, custom_payload = custom_payload_svm)
+svm_results = model_train_and_eval(data_svm, splits, max_iter=3, model = "svm", collect_metrics = True, custom_payload = custom_payload_svm)
 
 storage_svm_results = []
 for svmdic in svm_results:
@@ -1514,9 +1634,9 @@ get_aggregated_classification_metrcs(storage_svm_results, dtype="test", with_dis
 print("Writing results to storage")
 # get back formatted dictionary list that is compatible to write to storage
 storage_svm_results = get_classification_metrics_for_storage_ingestion(storage_svm_results)
-write_model_to_storage(storage_svm_results, "svm_v1")
+write_model_to_storage(storage_svm_results, "svm_h3i2d_test")
 
-display(read_model_from_storage("svm_v1"))
+display(read_model_from_storage("svm_h3i2d_test"))
 
 # COMMAND ----------
 
