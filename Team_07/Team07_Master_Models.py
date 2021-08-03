@@ -1424,7 +1424,7 @@ def get_values_from_hypothesis(hypothesis=1, custom_cols_to_drop=[]):
   
   return desired_categorical_h, desired_numeric_h, cols_to_consider_h, data_.select(cols_to_consider_h).cache(), custom_payload
 
-desired_categorical_logit, desired_numeric_logit, cols_to_consider_logit, data_logit, custom_payload_logit = get_values_from_hypothesis(3)
+desired_categorical_logit, desired_numeric_logit, cols_to_consider_logit, data_logit, custom_payload_logit = get_values_from_hypothesis(4)
 
 
 #### COMMON ####  
@@ -1446,7 +1446,7 @@ splits = get_timeseries_train_test_splits(data_logit, train_test_ratio=3, test_m
 # COMMAND ----------
 
 # perform actual training with logit model, get back list of dictionaries (each dic has train, test, val keys)
-logit_results = model_train_and_eval(data_logit, splits, max_iter=2, model = "logit_alt", collect_metrics = True, custom_payload = custom_payload_logit)
+logit_results = model_train_and_eval(data_logit, splits, max_iter=3, model = "logit", collect_metrics = True, custom_payload = custom_payload_logit)
 
 storage_logit_results = []
 for lrdic in logit_results:
