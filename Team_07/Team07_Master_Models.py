@@ -348,10 +348,14 @@ def get_std_features(data):
   dt_features = get_datetime_features(data)
   bool_features = get_boolean_features(data)
   assert_no_other_features_exist(data)
+  # no features are null in our model as we dropped/mean imputed/pre-processed them in the data processing stage
+  # so drop their null indicator variables as they provide no value
   cols_to_drop = ['index_id', 'origin_utc_offset', 'dest_utc_offset', 'origin_latitude', 
                   'origin_longitude', 'dest_latitude', 'dest_longitude', 'dt', 'planned_dep_time', 
                   'actual_dep_time', 'actual_arr_time', 'div_reached_dest', 
-                  'time_at_prediction_utc', 'oa_avg_del2_4hr', 'da_avg_del2_4hr', 'carrier_avg_del2_4hr'] + [x for x in dt_features if x != 'planned_departure_utc']
+                  'time_at_prediction_utc', 'oa_avg_del2_4hr', 'da_avg_del2_4hr', 'carrier_avg_del2_4hr']\
+                  + [x for x in dt_features if x != 'planned_departure_utc'] + [x for x in numeric_features + categorical_features if x.endswith('_null')]
+  
   
   # there are some special snowflakes we need to handle here
   # dep_is_delayed, origin_altitude and dest_altitude are strings, they should be numeric
@@ -1424,7 +1428,7 @@ def get_values_from_hypothesis(hypothesis=1, custom_cols_to_drop=[]):
   
   return desired_categorical_h, desired_numeric_h, cols_to_consider_h, data_.select(cols_to_consider_h).cache(), custom_payload
 
-desired_categorical_logit, desired_numeric_logit, cols_to_consider_logit, data_logit, custom_payload_logit = get_values_from_hypothesis(4)
+desired_categorical_logit, desired_numeric_logit, cols_to_consider_logit, data_logit, custom_payload_logit = get_values_from_hypothesis(1)
 
 
 #### COMMON ####  
@@ -1446,7 +1450,7 @@ splits = get_timeseries_train_test_splits(data_logit, train_test_ratio=3, test_m
 # COMMAND ----------
 
 # perform actual training with logit model, get back list of dictionaries (each dic has train, test, val keys)
-logit_results = model_train_and_eval(data_logit, splits, max_iter=3, model = "logit", collect_metrics = True, custom_payload = custom_payload_logit)
+logit_results = model_train_and_eval(data_logit, splits, max_iter=4, model = "logit", collect_metrics = True, custom_payload = custom_payload_logit)
 
 storage_logit_results = []
 for lrdic in logit_results:
@@ -1463,9 +1467,9 @@ get_aggregated_classification_metrcs(storage_logit_results, dtype="test", with_d
 print("Writing results to storage")
 # get back formatted dictionary list that is compatible to write to storage
 storage_logit_results = get_classification_metrics_for_storage_ingestion(storage_logit_results)
-write_model_to_storage(storage_logit_results, "logit_h3i2d_test")
+write_model_to_storage(storage_logit_results, "logit_h1i4d_test")
 
-display(read_model_from_storage("logit_h3i2d_test"))
+display(read_model_from_storage("logit_h1i4d_test"))
 
 # COMMAND ----------
 
@@ -1484,7 +1488,7 @@ verbose = True
 if verbose:
   print("Total number of rows in original dataset are {}".format(n))
 
-desired_categorical_rf, desired_numeric_rf, cols_to_consider_rf, data_rf, custom_payload_rf = get_values_from_hypothesis(3)
+desired_categorical_rf, desired_numeric_rf, cols_to_consider_rf, data_rf, custom_payload_rf = get_values_from_hypothesis(1)
 
 #### COMMON ####  
 if verbose:
@@ -1504,7 +1508,7 @@ splits = get_timeseries_train_test_splits(data_rf, train_test_ratio=3, test_mont
 # COMMAND ----------
 
 # perform actual training with RF model
-rf_results = model_train_and_eval(data_rf, splits, max_iter=2, model = "rf", collect_metrics = True, custom_payload = custom_payload_rf)
+rf_results = model_train_and_eval(data_rf, splits, max_iter=4, model = "rf", collect_metrics = True, custom_payload = custom_payload_rf)
 
 storage_rf_results = []
 for rfdic in rf_results:
@@ -1520,9 +1524,13 @@ get_aggregated_classification_metrcs(storage_rf_results, dtype="test", with_disp
 print("Writing results to storage")
 # get back formatted dictionary list that is compatible to write to storage
 storage_rf_results = get_classification_metrics_for_storage_ingestion(storage_rf_results)
-write_model_to_storage(storage_rf_results, "rf_h3i2d_test")
+write_model_to_storage(storage_rf_results, "rf_h1i4d_test")
 
-display(read_model_from_storage("rf_h3i2d_test"))
+display(read_model_from_storage("rf_h1i4d_test"))
+
+# COMMAND ----------
+
+
 
 # COMMAND ----------
 
@@ -1541,7 +1549,7 @@ verbose = True
 if verbose:
   print("Total number of rows in original dataset are {}".format(n))
 
-desired_categorical_gbt, desired_numeric_gbt, cols_to_consider_gbt, data_gbt, custom_payload_gbt = get_values_from_hypothesis(3)
+desired_categorical_gbt, desired_numeric_gbt, cols_to_consider_gbt, data_gbt, custom_payload_gbt = get_values_from_hypothesis(1)
     
 #### COMMON ####  
 if verbose:
@@ -1561,7 +1569,7 @@ splits = get_timeseries_train_test_splits(data_gbt, train_test_ratio=3, test_mon
 # COMMAND ----------
 
 # perform actual training with GBT model
-gbt_results = model_train_and_eval(data_gbt, splits, max_iter=1, model = "gbt", collect_metrics = True, custom_payload = custom_payload_gbt)
+gbt_results = model_train_and_eval(data_gbt, splits, max_iter=4, model = "gbt", collect_metrics = True, custom_payload = custom_payload_gbt)
 
 storage_gbt_results = []
 for gbtdic in gbt_results:
@@ -1577,9 +1585,9 @@ get_aggregated_classification_metrcs(storage_gbt_results, dtype="test", with_dis
 print("Writing results to storage")
 # get back formatted dictionary list that is compatible to write to storage
 storage_gbt_results = get_classification_metrics_for_storage_ingestion(storage_gbt_results)
-write_model_to_storage(storage_gbt_results, "gbt_h3i1d_test")
+write_model_to_storage(storage_gbt_results, "gbt_h1i4d_test")
 
-display(read_model_from_storage("gbt_h3i1d_test"))
+display(read_model_from_storage("gbt_h1i4d_test"))
 
 # COMMAND ----------
 
@@ -1598,7 +1606,7 @@ verbose = True
 if verbose:
   print("Total number of rows in original data set are {}".format(data.count()))
 
-desired_categorical_svm, desired_numeric_svm, cols_to_consider_svm, data_svm, custom_payload_svm = get_values_from_hypothesis(4)
+desired_categorical_svm, desired_numeric_svm, cols_to_consider_svm, data_svm, custom_payload_svm = get_values_from_hypothesis(1)
 
 #### COMMON ####  
 if verbose:
@@ -1618,7 +1626,7 @@ splits = get_timeseries_train_test_splits(data_svm, train_test_ratio=3, test_mon
 # COMMAND ----------
 
 # perform actual training with SVM model
-svm_results = model_train_and_eval(data_svm, splits, max_iter=3, model = "svm", collect_metrics = True, custom_payload = custom_payload_svm)
+svm_results = model_train_and_eval(data_svm, splits, max_iter=4, model = "svm", collect_metrics = True, custom_payload = custom_payload_svm)
 
 storage_svm_results = []
 for svmdic in svm_results:
@@ -1634,9 +1642,9 @@ get_aggregated_classification_metrcs(storage_svm_results, dtype="test", with_dis
 print("Writing results to storage")
 # get back formatted dictionary list that is compatible to write to storage
 storage_svm_results = get_classification_metrics_for_storage_ingestion(storage_svm_results)
-write_model_to_storage(storage_svm_results, "svm_h3i2d_test")
+write_model_to_storage(storage_svm_results, "svm_h1i4d_test")
 
-display(read_model_from_storage("svm_h3i2d_test"))
+display(read_model_from_storage("svm_h1i4d_test"))
 
 # COMMAND ----------
 
