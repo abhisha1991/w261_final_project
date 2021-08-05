@@ -462,14 +462,14 @@ def get_std_desired_categorical(df, hypothesis=1, custom_cols_to_drop=[]):
     # all categorical features in df
     desired_categorical = [x for x in categorical_features if x in df.columns]
   elif hypothesis == 2:
-    # includes mandatory features = time related + origin/dest/dist + carrier + holiday + computed score (potential for delay)
+    # includes mandatory features (time related + origin/dest/dist + carrier + holiday) + computed score (potential for delay)
     desired_categorical = ['month', 'day_of_month', 'day_of_week', 'dep_hour', 'arr_hour', 'origin_ICAO', 'dest_ICAO', 'carrier', 'distance_group', 'holiday', 'poten_for_del']
   elif hypothesis == 3:
-    # includes mandatory features = time related + origin/dest/dist + carrier + holiday + computed score (potential for delay) + weather related 
+    # includes mandatory features (time related + origin/dest/dist + carrier + holiday) + computed score (potential for delay) + weather related 
     desired_categorical = ['month', 'day_of_month', 'day_of_week', 'dep_hour', 'arr_hour', 'origin_ICAO', 'dest_ICAO', 'carrier', 'distance_group', 
                            'holiday', 'poten_for_del', 'canceled', 'origin_cig_cavok', 'origin_wnd_type', 'origin_vis_var', 'origin_city', 'dest_city']
   elif hypothesis == 4:
-    # includes mandatory features = time related + origin/dest/dist + carrier + holiday + computed score (potential for delay) + computed indicators
+    # includes mandatory features (time related + origin/dest/dist + carrier + holiday) + computed score (potential for delay) + computed indicators
     desired_categorical = ['month', 'day_of_month', 'day_of_week', 'dep_hour', 'arr_hour', 'origin_ICAO', 'dest_ICAO', 'carrier', 'holiday',
                            'weather_window_del_ind', 'carrier_window_del_ind', 'security_window_del_ind', 'late_ac_window_del_ind', 'nas_window_del_ind',
                            'oa_avg_del_ind', 'da_avg_del_ind', 'carrier_avg_del_ind', 'poten_for_del', 'prev_fl_del']
