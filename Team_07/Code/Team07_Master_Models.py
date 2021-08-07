@@ -1295,7 +1295,7 @@ def get_aggregated_classification_metrcs(list_dic, dtype="test", with_display=Tr
 # for each train, test split - apply pipeline and perform model training
 ##### THIS IS THE MAIN METHOD FOR TRAINING AND PLUGGING IN ALL OTHER MODELS #####
 
-def model_train_and_eval(data, splits, max_iter=1, model="logit", collect_metrics = True, rebalance_downsample=True, custom_payload=None):
+def model_train_and_eval(data, splits, max_iter=1, model="logit", collect_metrics = True, rebalance_downsample=True, rebalance_downsample_test=False, custom_payload=None):
   '''
   Main method for running models and returning results
   custom_payload is referring to a dictionary that each model can unpack to access model specific values (reg params, special columns, feature slection etc.) 
@@ -1330,6 +1330,10 @@ def model_train_and_eval(data, splits, max_iter=1, model="logit", collect_metric
       print("Down-sampling the training data to have more balanced classes...")
       pt, nt, pn, np = get_proportion_labels(train)
       train = downsample(train, pn)
+      if rebalance_downsample_test:
+        print("Down-sampling the test data to predict on balanced class scenario during prediction time...")
+        pt, nt, pn, np = get_proportion_labels(test)
+        test = downsample(test, pn)
       
     print("Starting training iteration: {} for model: '{}' with collect_metrics: {}".format(i+1, model, collect_metrics))
     
