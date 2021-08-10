@@ -1,7 +1,10 @@
 # W261 Final Project - Flight Delay Prediction
 
 ## Introduction
-Flight delays create problems in scheduling for airlines and airports, leading to passenger inconvenience, and huge economic losses. As a result there is growing interest in predicting flight delays beforehand in order to optimize operations and improve customer satisfaction. In this project, you will be predicting flight delays using the datasets provided. 
+Flight delays create problems in scheduling for airlines and airports, leading to passenger inconvenience, and huge economic losses. As a result there is growing interest in predicting flight delays beforehand in order to optimize operations and improve customer satisfaction. In this project, we we were able to successfully predict airline delay classification with a F1 score of about 0.90. We employed a number of different classification algorithms (Logistic Regression, Random Forests, SVM and Gradient Boosted Trees) - and we compared and contrasted their performance along different dimensions. The data was trained on around 30 million rows and we employed Databricks and PySpark to perform model training. You can view the full report and analysis [here](https://github.com/abhisha1991/w261_final_project/blob/main/Team_07/Report/W261_SU21_FINAL_PROJECT_TEAM07.ipynb)
+
+Below is a snippet of our final reported scores against our leading hypothesis of selected features.
+![image](https://user-images.githubusercontent.com/10823325/128800792-32fb6958-62f3-452c-8837-e798fd2e1d02.png)
 
 ## Problem
 
